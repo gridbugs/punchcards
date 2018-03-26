@@ -1,26 +1,20 @@
 extern crate direction;
 extern crate prototty;
 extern crate prototty_common;
-extern crate punchcards;
 extern crate rand;
+extern crate punchcards;
 
 use std::fmt::Write;
 use std::time::Duration;
 use rand::{Rng, SeedableRng, StdRng};
 use direction::CardinalDirection;
-use punchcards::state::*;
-use punchcards::tile::Tile;
-use punchcards::tile_info::TileInfo;
 use prototty::*;
 use prototty::Input as ProtottyInput;
 use prototty::inputs as prototty_inputs;
 use prototty_common::*;
-use punchcards::input::Input as PunchcardsInput;
-use punchcards::card::Card;
-use punchcards::card_state::CardState;
-use punchcards::ExternalEvent;
 
-use self::CardinalDirection::*;
+use punchcards::{GameState, SaveState, Input as GameInput, ExternalEvent as GameEvent};
+
 
 const SAVE_PERIOD_MS: u64 = 10000;
 const SAVE_FILE: &'static str = "save";
@@ -28,8 +22,6 @@ const SAVE_FILE: &'static str = "save";
 const GAME_OVER_MS: u64 = 1000;
 const GAME_HEIGHT: u32 = 10;
 const GAME_WIDTH: u32 = 10;
-const HAND_WIDTH: u32 = 12;
-const HAND_HEIGHT: u32 = 8;
 const DECK_WIDTH: u32 = 8;
 const DECK_HEIGHT: u32 = 1;
 const GAME_PADDING_BOTTOM: u32 = 1;
@@ -54,167 +46,7 @@ impl Frontend {
     }
 }
 
-fn view_tile<C: ViewCell>(tile_info: TileInfo, cell: &mut C) {
-    match tile_info.tile {
-        Tile::Player => {
-            cell.set_bold(true);
-            cell.set_character('@');
-            cell.set_foreground_colour(colours::WHITE);
-        }
-        Tile::Wall => {
-            cell.set_foreground_colour(colours::BLACK);
-            cell.set_background_colour(colours::WHITE);
-            cell.set_character('#');
-        }
-        Tile::Floor => {
-            cell.set_foreground_colour(Rgb24::new(127, 127, 127));
-            cell.set_character('.');
-        }
-        Tile::CardMove => {
-            cell.set_foreground_colour(colours::YELLOW);
-            cell.set_bold(true);
-            cell.set_character('m');
-        }
-        Tile::Punch(direction) => {
-            let ch = match direction {
-                North => '↑',
-                South => '↓',
-                East => '→',
-                West => '←',
-            };
-            cell.set_character(ch);
-            cell.set_foreground_colour(colours::CYAN);
-            cell.set_bold(false);
-        }
-        Tile::TargetDummy => {
-            if tile_info.damaged {
-                cell.set_foreground_colour(Rgb24::new(127, 0, 0));
-            } else {
-                cell.set_foreground_colour(colours::BRIGHT_BLUE);
-            }
-            cell.set_bold(true);
-            cell.set_character('0');
-        }
-        Tile::SmallRobot => {
-            cell.set_foreground_colour(colours::BRIGHT_GREEN);
-            cell.set_bold(true);
-            cell.set_character('1');
-        }
-        Tile::Stairs => {
-            cell.set_foreground_colour(colours::WHITE);
-            cell.set_bold(true);
-            cell.set_character('>');
-        }
-        Tile::Bullet => {
-            cell.set_foreground_colour(colours::WHITE);
-            cell.set_bold(true);
-            cell.set_character('•');
-        }
-    }
-}
-
 const INITIAL_INPUT_BUFFER_SIZE: usize = 16;
-
-struct DeckView {
-    scratch: String,
-}
-
-impl DeckView {
-    fn new() -> Self {
-        Self {
-            scratch: String::new(),
-        }
-    }
-}
-
-struct HandView {
-    scratch: String,
-    selected_view: RichStringView,
-}
-
-impl HandView {
-    fn new() -> Self {
-        let mut selected_view = RichStringView::new();
-        selected_view.info.foreground_colour = Some(colours::BLUE);
-        selected_view.info.background_colour = Some(colours::WHITE);
-        selected_view.info.bold = true;
-        Self {
-            scratch: String::new(),
-            selected_view,
-        }
-    }
-}
-
-impl ViewSize<State> for HandView {
-    fn size(&mut self, _state: &State) -> Size {
-        Size::new(HAND_WIDTH, HAND_HEIGHT)
-    }
-}
-
-fn write_card(card: Card, string: &mut String) {
-    match card {
-        Card::Move => write!(string, "Move").unwrap(),
-        Card::Punch => write!(string, "Punch").unwrap(),
-        Card::Shoot => write!(string, "Shoot").unwrap(),
-    }
-}
-
-fn maybe_write_card(card: Option<Card>, string: &mut String) {
-    if let Some(card) = card {
-        write_card(card, string);
-    } else {
-        write!(string, "-").unwrap();
-    }
-}
-
-impl View<CardState> for DeckView {
-    fn view<G: ViewGrid>(
-        &mut self,
-        card_state: &CardState,
-        offset: Coord,
-        depth: i32,
-        grid: &mut G,
-    ) {
-        write!(&mut self.scratch, "Size: {}", card_state.deck.num_cards()).unwrap();
-        StringView.view(&self.scratch, offset, depth, grid);
-        self.scratch.clear();
-    }
-}
-
-impl ViewSize<CardState> for DeckView {
-    fn size(&mut self, _card_state: &CardState) -> Size {
-        Size::new(DECK_WIDTH, DECK_HEIGHT)
-    }
-}
-
-impl View<State> for HandView {
-    fn view<G: ViewGrid>(&mut self, state: &State, offset: Coord, depth: i32, grid: &mut G) {
-        let selected_index = if let &InputState::WaitingForDirection(index, _) = state.input_state()
-        {
-            Some(index)
-        } else {
-            None
-        };
-
-        for (i, maybe_card) in state.card_state().hand.iter().enumerate() {
-            write!(&mut self.scratch, "{}: ", i + 1).unwrap();
-            maybe_write_card(*maybe_card, &mut self.scratch);
-
-            if Some(i) == selected_index {
-                self.selected_view.view(
-                    &self.scratch,
-                    offset + Coord::new(0, i as i32),
-                    depth,
-                    grid,
-                );
-            } else {
-                StringView.view(&self.scratch, offset + Coord::new(0, i as i32), depth, grid);
-            };
-
-            self.scratch.clear();
-        }
-    }
-}
 
 #[derive(Debug, Clone, Copy)]
 enum AppState {
@@ -228,7 +60,7 @@ pub enum ControlFlow {
 }
 
 enum InputType {
-    Game(PunchcardsInput),
+    Game(GameInput),
     ControlFlow(ControlFlow),
 }
 
@@ -257,8 +89,6 @@ impl TitleScreenView {
 }
 
 pub struct AppView {
-    deck_view: Decorated<DeckView, Border>,
-    hand_view: Decorated<HandView, Border>,
     title_screen_view: Decorated<TitleScreenView, Align>,
 }
 
@@ -285,8 +115,6 @@ impl AppView {
     pub fn new(size: Size) -> Self {
         let align = Align::new(size, Alignment::Centre, Alignment::Centre);
         Self {
-            deck_view: Decorated::new(DeckView::new(), Border::with_title("Deck")),
-            hand_view: Decorated::new(HandView::new(), Border::with_title("Hand")),
             title_screen_view: Decorated::new(TitleScreenView::new(), align),
         }
     }
@@ -298,9 +126,9 @@ impl AppView {
 pub struct App<S: Storage> {
     main_menu: MenuInstance<MainMenuChoice>,
     app_state: AppState,
-    state: State,
+    state: GameState,
     in_progress: bool,
-    input_buffer: Vec<PunchcardsInput>,
+    input_buffer: Vec<GameInput>,
     game_over_duration: Duration,
     rng: StdRng,
     storage: S,
@@ -316,32 +144,6 @@ impl<S: Storage> View<App<S>> for AppView {
                     .view(&app.main_menu, offset, depth, grid);
             }
             AppState::Game => {
-                let entity_store = app.state.entity_store();
-
-                for (id, tile_info) in entity_store.tile_info.iter() {
-                    if let Some(coord) = entity_store.coord.get(&id) {
-                        if let Some(cell) = grid.get_mut(
-                            offset + Coord::new(coord.x, coord.y),
-                            tile_info.depth + depth,
-                        ) {
-                            view_tile(*tile_info, cell);
-                        }
-                    }
-                }
-
-                self.deck_view.view(
-                    app.state.card_state(),
-                    offset + Coord::new(0, GAME_HEIGHT as i32 + GAME_PADDING_BOTTOM as i32),
-                    depth,
-                    grid,
-                );
-
-                self.hand_view.view(
-                    &app.state,
-                    offset + Coord::new(GAME_WIDTH as i32 + GAME_PADDING_RIGHT as i32, 0),
-                    depth,
-                    grid,
-                );
             }
             AppState::GameOver => {
                 StringView.view(&"Game Over", offset, depth, grid);
@@ -381,9 +183,9 @@ impl<S: Storage> App<S> {
         let existing_state: Option<SaveState> = storage.load(SAVE_FILE).ok();
 
         let (in_progress, state) = if let Some(state) = existing_state {
-            (true, State::from(state))
+            (true, GameState::from_save_state(state))
         } else {
-            (false, State::new(rng.gen()))
+            (false, GameState::from_rng_seed(rng.gen()))
         };
 
         let main_menu = make_main_menu(in_progress, frontend);
@@ -459,7 +261,7 @@ impl<S: Storage> App<S> {
                                 None
                             }
                             MainMenuChoice::NewGame => {
-                                self.state = State::new(self.rng.gen());
+                                self.state = GameState::from_rng_seed(self.rng.gen());
                                 self.app_state = AppState::Game;
                                 self.in_progress = true;
                                 self.main_menu = make_main_menu(true, self.frontend);
@@ -467,7 +269,7 @@ impl<S: Storage> App<S> {
                                 None
                             }
                             MainMenuChoice::ClearData => {
-                                self.state = State::new(self.rng.gen());
+                                self.state = GameState::from_rng_seed(self.rng.gen());
                                 self.in_progress = false;
                                 self.main_menu = make_main_menu(false, self.frontend);
                                 self.store();
@@ -482,17 +284,6 @@ impl<S: Storage> App<S> {
             AppState::Game => {
                 for input in inputs {
                     let input_type = match input {
-                        ProtottyInput::Up => InputType::Game(PunchcardsInput::Direction(North)),
-                        ProtottyInput::Down => InputType::Game(PunchcardsInput::Direction(South)),
-                        ProtottyInput::Left => InputType::Game(PunchcardsInput::Direction(West)),
-                        ProtottyInput::Right => InputType::Game(PunchcardsInput::Direction(East)),
-                        ProtottyInput::Char('1') => InputType::Game(PunchcardsInput::SelectCard(0)),
-                        ProtottyInput::Char('2') => InputType::Game(PunchcardsInput::SelectCard(1)),
-                        ProtottyInput::Char('3') => InputType::Game(PunchcardsInput::SelectCard(2)),
-                        ProtottyInput::Char('4') => InputType::Game(PunchcardsInput::SelectCard(3)),
-                        ProtottyInput::Char('5') => InputType::Game(PunchcardsInput::SelectCard(4)),
-                        ProtottyInput::Char('6') => InputType::Game(PunchcardsInput::SelectCard(5)),
-                        ProtottyInput::Char(' ') => InputType::Game(PunchcardsInput::Wait),
                         prototty_inputs::ETX => InputType::ControlFlow(ControlFlow::Quit),
                         prototty_inputs::ESCAPE => {
                             self.app_state = AppState::MainMenu;
@@ -510,7 +301,7 @@ impl<S: Storage> App<S> {
 
                 if let Some(meta) = self.state.tick(self.input_buffer.drain(..), period) {
                     match meta {
-                        ExternalEvent::GameOver => {
+                        GameEvent::GameOver => {
                             self.app_state = AppState::GameOver;
                             self.game_over_duration = Duration::from_millis(GAME_OVER_MS);
                         }
@@ -526,7 +317,7 @@ impl<S: Storage> App<S> {
                     self.in_progress = false;
                     self.main_menu = make_main_menu(false, self.frontend);
                     self.app_state = AppState::MainMenu;
-                    self.state = State::new(self.rng.gen());
+                    self.state = GameState::from_rng_seed(self.rng.gen());
                 }
                 None
             }

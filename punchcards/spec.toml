@@ -2,22 +2,10 @@ id_width = 16
 spatial_hash_key = 'coord'
 
 [components]
-coord = { type = '::grid_2d::Coord', storage = 'vector' }
-solid = { storage = 'vector' }
-collider = { storage = 'vector' }
-player = { storage = 'btree' }
-tile_info = { type = '::tile_info::TileInfo', storage = 'vector' }
-card = { type = '::card::Card', storage = 'btree' }
-npc = { storage = 'btree' }
-hit_points = { type = 'i32', storage = 'hash' }
-punch = { storage = 'hash' }
-stairs = { storage = 'hash' }
-slide_direction = { type = '::direction::CardinalDirection', storage = 'hash' }
-bullet = { storage = 'hash' }
+coord = { type = '::entity_store_helper::grid_2d::Coord', storage = 'flat' }
+solid = { storage = 'hash' }
+tile = { type = '::tile::TileInfo', storage = 'btree' }
+player = { storage = 'vector' }
 
 [spatial_hash]
 solid_count = { component = 'solid', aggregate = 'count' }
-player_count = { component = 'player', aggregate = 'count' }
-card_set = { component = 'card', aggregate = 'set' }
-npc_set = { component = 'npc', aggregate = 'set' }
-stairs_count = { component = 'stairs', aggregate = 'count' }
