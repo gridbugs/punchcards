@@ -33,6 +33,7 @@ fn main() {
         if let Some(control_flow) = app.tick(
             context.drain_input().unwrap(),
             Duration::from_millis(TICK_MILLIS),
+            &view,
         ) {
             match control_flow {
                 ControlFlow::Quit => break,

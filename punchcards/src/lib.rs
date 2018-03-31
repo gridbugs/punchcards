@@ -13,7 +13,7 @@ mod entity_store {
 
 use entity_store::*;
 
-mod tile {
+pub mod tile {
     #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
     pub enum TileType {
         Floor,
@@ -29,17 +29,19 @@ mod tile {
 
 pub struct Policy {
     entity_store: EntityStore,
+    wit: EntityWit,
 }
 
 impl Policy {
     pub fn new() -> Self {
-        let (entity_store, _wit) = EntityStore::new(Size::new(8, 8));
+        let (entity_store, wit) = EntityStore::new(Size::new(8, 8));
         Self {
             entity_store,
+            wit,
         }
     }
-    pub fn make_player<'w>(&mut self, wit: &'w EntityWit<'w>, coord: Coord) -> EntityId<'w> {
-        let id = self.entity_store.allocate_entity_id(wit);
+    pub fn make_player(&mut self, coord: Coord) -> EntityId {
+        let id = self.entity_store.allocate_entity_id(&self.wit);
 
         self.entity_store.insert_coord(id, coord);
         self.entity_store.insert_player(id);
@@ -47,7 +49,6 @@ impl Policy {
 
         id
     }
-    /*
     pub fn make_wall(&mut self, coord: Coord) -> EntityId {
         let id = self.entity_store.allocate_entity_id(&self.wit);
 
@@ -64,23 +65,36 @@ impl Policy {
         self.entity_store.insert_tile(id, tile::TileInfo { typ: tile::TileType::Floor, depth: 1 });
 
         id
-    }*/
-    pub fn render_iter<'a, 'w>(&'a self, wit: &'w EntityWit<'w>) -> RenderIter<'a, 'w> {
+    }
+    pub fn render_iter(&self) -> RenderIter {
         RenderIter {
-            iter: self.entity_store.iter_tile(wit),
+            iter: self.entity_store.iter_tile(&self.wit),
             entity_store: &self.entity_store,
         }
     }
 }
 
-pub struct RenderIter<'a, 'w> {
-    iter: ComponentIterTile<'a, 'w>,
+pub struct RenderIter<'a> {
+    iter: ComponentIterTile<'a, 'a>,
     entity_store: &'a EntityStore,
+}
+
+impl<'a> Iterator for RenderIter<'a> {
+    type Item = (&'a Coord, &'a tile::TileInfo);
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some((id, tile)) = self.iter.next() {
+            if let Some(coord) = self.entity_store.get_coord(id) {
+                return Some((coord, tile));
+            }
+        }
+        None
+    }
 }
 
 pub enum Input {
 }
 pub struct GameState {
+    policy: Policy,
 }
 pub enum ExternalEvent {
     GameOver,
@@ -106,25 +120,30 @@ impl GameState {
             for (x, ch) in line.chars().enumerate() {
                 let coord = Coord::new(x as i32, y as i32);
                 match ch {
-    //                '@' => { policy.make_player(coord); }
-      //              '#' => { policy.make_wall(coord); }
-      //              '.' => { policy.make_floor(coord); }
+                    '@' => { policy.make_player(coord); }
+                    '#' => { policy.make_wall(coord); }
+                    '.' => { policy.make_floor(coord); }
                     _ => panic!(),
                 }
             }
         }
 
         Self {
+            policy,
         }
     }
     pub fn from_save_state(save_state: SaveState) -> Self {
         Self {
-
+            policy: Policy {
+                entity_store: save_state.entity_store.clone(),
+                wit: save_state.wit,
+            },
         }
     }
     pub fn save(&self, rng_seed: usize) -> SaveState {
         SaveState {
-
+            entity_store: self.policy.entity_store.clone(),
+            wit: self.policy.wit,
         }
     }
     pub fn tick<I>(&mut self, inputs: I, period: Duration) -> Option<ExternalEvent>
@@ -133,9 +152,13 @@ impl GameState {
     {
         None
     }
+    pub fn render_iter(&self) -> RenderIter {
+        self.policy.render_iter()
+    }
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct SaveState {
-
+    entity_store: EntityStore,
+    wit: EntityWit,
 }

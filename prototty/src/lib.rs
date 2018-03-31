@@ -1,8 +1,8 @@
 extern crate direction;
 extern crate prototty;
 extern crate prototty_common;
-extern crate rand;
 extern crate punchcards;
+extern crate rand;
 
 use std::fmt::Write;
 use std::time::Duration;
@@ -13,8 +13,8 @@ use prototty::Input as ProtottyInput;
 use prototty::inputs as prototty_inputs;
 use prototty_common::*;
 
-use punchcards::{GameState, SaveState, Input as GameInput, ExternalEvent as GameEvent};
-
+use punchcards::{ExternalEvent as GameEvent, GameState, Input as GameInput, SaveState};
+use punchcards::tile::*;
 
 const SAVE_PERIOD_MS: u64 = 10000;
 const SAVE_FILE: &'static str = "save";
@@ -83,7 +83,7 @@ impl TitleScreenView {
     fn new() -> Self {
         Self {
             title_view: RichStringView::with_info(TextInfo::default().bold().underline()),
-            main_menu_view: DefaultMenuInstanceView,
+            main_menu_view: DefaultMenuInstanceView::new(),
         }
     }
 }
@@ -143,8 +143,17 @@ impl<S: Storage> View<App<S>> for AppView {
                 self.title_screen_view
                     .view(&app.main_menu, offset, depth, grid);
             }
-            AppState::Game => {
-            }
+            AppState::Game => for (coord, tile_info) in app.state.render_iter() {
+                let ch = match tile_info.typ {
+                    TileType::Player => '@',
+                    TileType::Wall => '#',
+                    TileType::Floor => '.',
+                };
+
+                if let Some(cell) = grid.get_mut(offset + coord, depth + tile_info.depth as i32) {
+                    cell.set_character(ch);
+                }
+            },
             AppState::GameOver => {
                 StringView.view(&"Game Over", offset, depth, grid);
             }
@@ -223,7 +232,7 @@ impl<S: Storage> App<S> {
         }
     }
 
-    pub fn tick<I>(&mut self, inputs: I, period: Duration) -> Option<ControlFlow>
+    pub fn tick<I>(&mut self, inputs: I, period: Duration, view: &AppView) -> Option<ControlFlow>
     where
         I: IntoIterator<Item = ProtottyInput>,
     {
@@ -236,7 +245,9 @@ impl<S: Storage> App<S> {
 
         match self.app_state {
             AppState::MainMenu => {
-                if let Some(menu_output) = self.main_menu.tick(inputs) {
+                if let Some(menu_output) = self.main_menu
+                    .tick_with_mouse(inputs, &view.title_screen_view.view.main_menu_view)
+                {
                     match menu_output {
                         MenuOutput::Quit => Some(ControlFlow::Quit),
                         MenuOutput::Cancel => {
