@@ -28,7 +28,7 @@ impl WebApp {
         I: IntoIterator<Item = ProtottyInput>,
     {
         self.view.set_size(self.context.size());
-        if let Some(control_flow) = self.app.tick(inputs, period) {
+        if let Some(control_flow) = self.app.tick(inputs, period, &self.view) {
             match control_flow {
                 ControlFlow::Quit => {
                     self.context.quit();
