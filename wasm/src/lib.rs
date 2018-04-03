@@ -53,13 +53,12 @@ pub unsafe extern "C" fn alloc_app(
 #[no_mangle]
 pub unsafe fn tick(
     app: *mut WebApp,
-    key_codes: *const u8,
-    key_mods: *const u8,
+    inputs: *const u64,
     num_inputs: usize,
     period_millis: f64,
 ) {
     let period = Duration::from_millis(period_millis as u64);
 
-    let input_iter = input::js_event_input_iter(key_codes, key_mods, num_inputs);
+    let input_iter = input::js_event_input_iter(inputs, num_inputs);
     (*app).tick(input_iter, period);
 }

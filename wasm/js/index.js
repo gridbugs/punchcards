@@ -22,12 +22,14 @@ const config = {
             console.log("Quitting...");
             open(location, "_self").close();
         }
-    }
+    },
+    cell_width: 16,
+    cell_height: 16,
 };
 
 $(() => {
     console.log("Loading wasm program...");
-    prototty.loadProtottyApp("punchcards_wasm.wasm", 30, 15, protottyTerminal, config).then(app => {
+    prototty.loadProtottyApp("app.wasm", 30, 15, protottyTerminal, config).then(app => {
         console.log("Loaded wasm program!");
         app.start();
     });

@@ -9,10 +9,11 @@
     "license": "MIT",
     "devDependencies": {
         "uglifyjs-webpack-plugin": "^1.1.4",
-        "webpack": "^3.10.0"
+        "webpack": "^4.4.1",
+        "webpack-cli": "^2.0.13"
     },
     "dependencies": {
         "jquery": "^3.2.1",
-        "prototty-terminal-js": "^0.7.1"
+        "prototty-terminal-js": "^0.8.0"
     }
 }

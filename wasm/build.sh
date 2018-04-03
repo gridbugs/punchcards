@@ -17,7 +17,7 @@ cargo build \
 
 wasm-gc \
     $TOP_LEVEL_DIR/target/wasm32-unknown-unknown/release/$CRATE.wasm \
-    dist/$CRATE.wasm
+    dist/app.wasm
 
 npx webpack
 
