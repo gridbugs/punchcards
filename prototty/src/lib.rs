@@ -300,6 +300,10 @@ impl<S: Storage> App<S> {
                             self.app_state = AppState::MainMenu;
                             break;
                         }
+                        ProtottyInput::Left => InputType::Game(GameInput::Move(CardinalDirection::West)),
+                        ProtottyInput::Right => InputType::Game(GameInput::Move(CardinalDirection::East)),
+                        ProtottyInput::Up => InputType::Game(GameInput::Move(CardinalDirection::North)),
+                        ProtottyInput::Down => InputType::Game(GameInput::Move(CardinalDirection::South)),
                         _ => continue,
                     };
                     match input_type {

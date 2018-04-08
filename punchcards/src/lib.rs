@@ -3,9 +3,11 @@ extern crate serde;
 extern crate serde_derive;
 #[macro_use]
 extern crate entity_store_helper;
+extern crate direction;
 
 use std::time::Duration;
 use entity_store_helper::grid_2d::{Size, Coord};
+use direction::CardinalDirection;
 
 mod entity_store {
     include_entity_store!("entity_store.rs");
@@ -27,8 +29,45 @@ pub mod tile {
     }
 }
 
-pub struct Policy {
+pub struct LowLevelPolicy {
     entity_store: EntityStore,
+}
+
+impl LowLevelPolicy {
+    pub fn make_player(&mut self, id: EntityId, coord: Coord) {
+        self.entity_store.insert_coord(id, coord);
+        self.entity_store.insert_player(id);
+        self.entity_store.insert_tile(id, tile::TileInfo { typ: tile::TileType::Player, depth: 3 });
+    }
+    pub fn make_wall(&mut self, id: EntityId, coord: Coord) {
+        self.entity_store.insert_coord(id, coord);
+        self.entity_store.insert_solid(id);
+        self.entity_store.insert_tile(id, tile::TileInfo { typ: tile::TileType::Wall, depth: 2 });
+    }
+    pub fn make_floor(&mut self, id: EntityId, coord: Coord) {
+        self.entity_store.insert_coord(id, coord);
+        self.entity_store.insert_tile(id, tile::TileInfo { typ: tile::TileType::Floor, depth: 1 });
+    }
+    pub fn move_collider_check(&self, id: EntityId, direction: CardinalDirection) -> Option<Coord> {
+        if let Some(current_coord) = self.entity_store.get_coord(id) {
+            let new_coord = current_coord + direction.coord();
+            if let Some(destination_cell) = self.entity_store.spatial_hash_get(new_coord) {
+                if destination_cell.solid_count == 0 {
+                    return Some(new_coord);
+                }
+            }
+        }
+        None
+    }
+    pub fn move_collider(&mut self, id: EntityId, direction: CardinalDirection) {
+        if let Some(new_coord) = self.move_collider_check(id, direction) {
+            self.entity_store.insert_coord(id, new_coord);
+        }
+    }
+}
+
+pub struct Policy {
+    low_level: LowLevelPolicy,
     wit: EntityWit,
 }
 
@@ -36,40 +75,32 @@ impl Policy {
     pub fn new() -> Self {
         let (entity_store, wit) = EntityStore::new(Size::new(8, 8));
         Self {
-            entity_store,
+            low_level: LowLevelPolicy {
+                entity_store,
+            },
             wit,
         }
     }
-    pub fn make_player(&mut self, coord: Coord) -> EntityId {
-        let id = self.entity_store.allocate_entity_id(&self.wit);
-
-        self.entity_store.insert_coord(id, coord);
-        self.entity_store.insert_player(id);
-        self.entity_store.insert_tile(id, tile::TileInfo { typ: tile::TileType::Player, depth: 3 });
-
-        id
+    pub fn move_player(&mut self, direction: CardinalDirection) {
+        let player_id = self.low_level.entity_store.any_player(&self.wit).unwrap();
+        self.low_level.move_collider(player_id, direction);
     }
-    pub fn make_wall(&mut self, coord: Coord) -> EntityId {
-        let id = self.entity_store.allocate_entity_id(&self.wit);
-
-        self.entity_store.insert_coord(id, coord);
-        self.entity_store.insert_solid(id);
-        self.entity_store.insert_tile(id, tile::TileInfo { typ: tile::TileType::Wall, depth: 2 });
-
-        id
+    pub fn make_player(&mut self, coord: Coord) {
+        let id = self.low_level.entity_store.allocate_entity_id(&self.wit);
+        self.low_level.make_player(id, coord);
     }
-    pub fn make_floor(&mut self, coord: Coord) -> EntityId {
-        let id = self.entity_store.allocate_entity_id(&self.wit);
-
-        self.entity_store.insert_coord(id, coord);
-        self.entity_store.insert_tile(id, tile::TileInfo { typ: tile::TileType::Floor, depth: 1 });
-
-        id
+    pub fn make_wall(&mut self, coord: Coord) {
+        let id = self.low_level.entity_store.allocate_entity_id(&self.wit);
+        self.low_level.make_wall(id, coord);
+    }
+    pub fn make_floor(&mut self, coord: Coord) {
+        let id = self.low_level.entity_store.allocate_entity_id(&self.wit);
+        self.low_level.make_floor(id, coord);
     }
     pub fn render_iter(&self) -> RenderIter {
         RenderIter {
-            iter: self.entity_store.iter_tile(&self.wit),
-            entity_store: &self.entity_store,
+            iter: self.low_level.entity_store.iter_tile(&self.wit),
+            entity_store: &self.low_level.entity_store,
         }
     }
 }
@@ -92,6 +123,7 @@ impl<'a> Iterator for RenderIter<'a> {
 }
 
 pub enum Input {
+    Move(CardinalDirection),
 }
 pub struct GameState {
     policy: Policy,
@@ -120,9 +152,12 @@ impl GameState {
             for (x, ch) in line.chars().enumerate() {
                 let coord = Coord::new(x as i32, y as i32);
                 match ch {
-                    '@' => { policy.make_player(coord); }
-                    '#' => { policy.make_wall(coord); }
-                    '.' => { policy.make_floor(coord); }
+                    '@' => {
+                        policy.make_player(coord);
+                        policy.make_floor(coord);
+                    }
+                    '#' => policy.make_wall(coord),
+                    '.' => policy.make_floor(coord),
                     _ => panic!(),
                 }
             }
@@ -135,14 +170,16 @@ impl GameState {
     pub fn from_save_state(save_state: SaveState) -> Self {
         Self {
             policy: Policy {
-                entity_store: save_state.entity_store.clone(),
+                low_level: LowLevelPolicy {
+                    entity_store: save_state.entity_store.clone(),
+                },
                 wit: save_state.wit,
             },
         }
     }
     pub fn save(&self, rng_seed: usize) -> SaveState {
         SaveState {
-            entity_store: self.policy.entity_store.clone(),
+            entity_store: self.policy.low_level.entity_store.clone(),
             wit: self.policy.wit,
         }
     }
@@ -150,6 +187,14 @@ impl GameState {
         where
         I: IntoIterator<Item = Input>,
     {
+        for input in inputs {
+            match input {
+                Input::Move(direction) => {
+                    self.policy.move_player(direction);
+                }
+            }
+        }
+
         None
     }
     pub fn render_iter(&self) -> RenderIter {
